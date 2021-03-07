@@ -12,14 +12,21 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+type Creater struct {
+	Template *template.Template
+	Value    map[string]interface{}
+	FuncMap  template.FuncMap
+}
+
 type ModelCreater interface {
-	Execute() error
-	CreateGofile(string, string, interface{}, map[string]interface{}) error
+	GetModel() (Models, error)
+	Execute(string, string, map[string]interface{}, template.FuncMap) error
 }
 
 type modelcreater struct {
-	db     *sql.DB
-	tables []TableName
+	db      *sql.DB
+	tables  []TableName
+	Creater *Creater
 }
 
 func NewModelCreater(db *sql.DB, ss ...string) (*modelcreater, error) {
@@ -27,10 +34,10 @@ func NewModelCreater(db *sql.DB, ss ...string) (*modelcreater, error) {
 	for _, s := range ss {
 		tables = append(tables, TableName(s))
 	}
-	return &modelcreater{db, tables}, nil
+	return &modelcreater{db, tables, nil}, nil
 }
 
-func (r *modelcreater) Execute() (Models, error) {
+func (r *modelcreater) GetModel() (Models, error) {
 	ts, err := r.getTables()
 	if err != nil {
 		log.Println("Get Tables Error")
@@ -80,6 +87,16 @@ func (r *modelcreater) Execute() (Models, error) {
 	}
 
 	return ms, err
+}
+
+func (r *modelcreater) Execute(goName, tplName string, in map[string]interface{}, fm template.FuncMap) error {
+	f, err := os.Create(goName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	return template.Must(template.New(tplName).Funcs(fm).ParseGlob(fmt.Sprintf("./template/%s", tplName))).Execute(f, in)
 }
 
 func (r *modelcreater) getAllColumnInfosMap(ts []TableName) (map[TableName]ColumnInfos, error) {
@@ -311,25 +328,28 @@ func (r *modelcreater) selectQuery(query string) ([]map[string]string, error) {
 	return ret, nil
 }
 
-func (r *modelcreater) CreateGofile(goName, tplName string, in interface{}, fm map[string]interface{}) error {
-	f, err := os.Create(goName)
+func (r *modelcreater) setModelTemp(m *Model) error {
+	in := map[string]interface{}{
+		"ModelName": m.Name,
+		"TableName": m.TableName,
+		"Columns":   m.Columns,
+	}
+	fm := template.FuncMap{
+		"Func": func(cs *Column, index int) string {
+			return fmt.Sprintf("%s %s %s", cs.Name, cs.Type, "")
+		},
+	}
+
+	modelTemp := "model.go.tpl"
+	temp, err := template.New(modelTemp).Funcs(fm).ParseGlob(fmt.Sprintf("./template/%s", modelTemp))
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	funcMap := r.setBaseFuncMap()
-	for k, v := range fm {
-		funcMap[k] = v
-	}
-
-	err = template.Must(template.New(tplName).Funcs(funcMap).ParseGlob(fmt.Sprintf("./template/%s", tplName))).Execute(f, in)
-	if err != nil {
-		return err
+	r.Creater = &Creater{
+		Template: temp,
+		Value:    in,
+		FuncMap:  fm,
 	}
 	return nil
-}
-
-func (r *modelcreater) setBaseFuncMap() template.FuncMap {
-	return template.FuncMap{}
 }

@@ -18,6 +18,14 @@ const (
 )
 
 func init() {
+	dirs := []string{
+		fmt.Sprintf("./%s%s", workDir, modelDir),
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d, 0777); err != nil {
+			fmt.Println(err)
+		}
+	}
 }
 
 func main() {
@@ -33,7 +41,7 @@ func main() {
 		panic(err.Error())
 	}
 
-	ms, err := mc.Execute()
+	ms, err := mc.GetModel()
 	if err != nil {
 		panic(err.Error())
 	}
@@ -59,14 +67,15 @@ func createGofile(m *modelcreater.Model, mc modelcreater.ModelCreater) error {
 	in := map[string]interface{}{
 		"ModelName": m.Name,
 		"TableName": m.TableName,
-		"Columns":   m.Name,
+		"Columns":   m.Columns,
 	}
 	fm := template.FuncMap{
 		"Func": func(cs *modelcreater.Column, index int) string {
 			return fmt.Sprintf("%s %s %s", cs.Name, cs.Type, "")
 		},
 	}
-	return mc.CreateGofile(
+
+	return mc.Execute(
 		fmt.Sprintf("./%s%s%s.go", workDir, modelDir, m.TableName[0:len(m.TableName)-1]),
 		"tmp.go.tpl",
 		in,
