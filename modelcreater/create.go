@@ -12,31 +12,26 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-const (
-	schemaName = ""
-)
-
 type ModelCreater interface {
 	Execute() error
+	CreateGofile(string, string, interface{}, map[string]interface{}) error
 }
 
 type modelcreater struct {
-	db *sql.DB
+	db     *sql.DB
+	tables []TableName
 }
 
-func NewModelCreater() (*modelcreater, error) {
-	db, err := sql.Open("mysql", fmt.Sprintf("%s:%s@/%s", "root", "password", ""))
-	if err != nil {
-		return nil, err
+func NewModelCreater(db *sql.DB, ss ...string) (*modelcreater, error) {
+	var tables []TableName
+	for _, s := range ss {
+		tables = append(tables, TableName(s))
 	}
-	return &modelcreater{db}, nil
-
+	return &modelcreater{db, tables}, nil
 }
 
 func (r *modelcreater) Execute() (Models, error) {
-	defer r.db.Close()
-	tableName := TableName("users")
-	ts, err := r.getTables(tableName)
+	ts, err := r.getTables()
 	if err != nil {
 		log.Println("Get Tables Error")
 		return nil, err
@@ -54,8 +49,19 @@ func (r *modelcreater) Execute() (Models, error) {
 
 	var ms []*Model
 	for t, cis := range acim {
-		fs := fkMap[t]
+		exists := func(t TableName) bool {
+			for _, table := range r.tables {
+				if table == t {
+					return true
+				}
+			}
+			return false
+		}
+		if !exists(t) {
+			continue
+		}
 
+		fs := fkMap[t]
 		cs, err := r.getColumnList(cis, fs)
 		if err != nil {
 			return nil, err
@@ -69,16 +75,11 @@ func (r *modelcreater) Execute() (Models, error) {
 		})
 	}
 
-	if len(ms) != 0 {
-		for _, m := range ms {
-			log.Println(m)
-		}
-		log.Println("Success!")
-	} else {
-		log.Println(fmt.Sprintf("Not Exsits Table. tableName=%s", tableName))
+	if len(ms) == 0 {
+		log.Println(fmt.Sprintf("Not Exsits Table. tableName=%v", r.tables))
 	}
 
-	return nil, err
+	return ms, err
 }
 
 func (r *modelcreater) getAllColumnInfosMap(ts []TableName) (map[TableName]ColumnInfos, error) {
@@ -222,11 +223,8 @@ func (r *modelcreater) getColumnType(typeStr string) string {
 	}
 }
 
-func (r *modelcreater) getTables(t TableName) ([]TableName, error) {
+func (r *modelcreater) getTables() ([]TableName, error) {
 	query := "SHOW TABLES"
-	if t != "" {
-		query += fmt.Sprintf(" WHERE Tables_in_%s = '%s'", t)
-	}
 	values, err := r.selectQuery(query)
 	if err != nil {
 		return nil, err
@@ -313,7 +311,7 @@ func (r *modelcreater) selectQuery(query string) ([]map[string]string, error) {
 	return ret, nil
 }
 
-func (r *modelcreater) createGofile(goName, tplName string, in interface{}, fm map[string]interface{}) error {
+func (r *modelcreater) CreateGofile(goName, tplName string, in interface{}, fm map[string]interface{}) error {
 	f, err := os.Create(goName)
 	if err != nil {
 		return err

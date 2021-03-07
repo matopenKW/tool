@@ -29,7 +29,7 @@ func ConvertSnakeToCamel(s string, isPascal bool) string {
 		if uppercase(s) {
 			ret += strings.ToUpper(s)
 		} else {
-			ret += s
+			ret += fmt.Sprintf("%s%s", strings.ToUpper(s[0:1]), s[1:])
 		}
 	}
 
