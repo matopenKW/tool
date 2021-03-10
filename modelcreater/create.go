@@ -6,27 +6,20 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 	"text/template"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
-type Creater struct {
-	Template *template.Template
-	Value    map[string]interface{}
-	FuncMap  template.FuncMap
-}
-
 type ModelCreater interface {
-	GetModel() (Models, error)
+	GetModels() (Models, error)
 	Execute(string, string, map[string]interface{}, template.FuncMap) error
+	ModelCreate(string) error
 }
 
 type modelcreater struct {
-	db      *sql.DB
-	tables  []TableName
-	Creater *Creater
+	db     *sql.DB
+	tables []TableName
 }
 
 func NewModelCreater(db *sql.DB, ss ...string) (*modelcreater, error) {
@@ -34,10 +27,10 @@ func NewModelCreater(db *sql.DB, ss ...string) (*modelcreater, error) {
 	for _, s := range ss {
 		tables = append(tables, TableName(s))
 	}
-	return &modelcreater{db, tables, nil}, nil
+	return &modelcreater{db, tables}, nil
 }
 
-func (r *modelcreater) GetModel() (Models, error) {
+func (r *modelcreater) GetModels() (Models, error) {
 	ts, err := r.getTables()
 	if err != nil {
 		log.Println("Get Tables Error")
@@ -97,6 +90,39 @@ func (r *modelcreater) Execute(goName, tplName string, in map[string]interface{}
 	defer f.Close()
 
 	return template.Must(template.New(tplName).Funcs(fm).ParseGlob(fmt.Sprintf("./template/%s", tplName))).Execute(f, in)
+}
+
+func (r *modelcreater) ModelCreate(output string) error {
+	ms, err := r.GetModels()
+	if err != nil {
+		return err
+	}
+
+	for _, m := range ms {
+		param := map[string]interface{}{
+			"ModelName": m.Name,
+			"TableName": m.TableName,
+			"Columns":   m.Columns,
+		}
+		fm := template.FuncMap{
+			"GetField": func(cs *Column) string {
+				t := GetColumnType(cs.Type)
+				return fmt.Sprintf("%s %s %s", ConvertSnakeToCamel(string(cs.Name), true), t, "")
+			},
+		}
+
+		err = r.Execute(
+			output,
+			"model.go.tpl",
+			param,
+			fm,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *modelcreater) getAllColumnInfosMap(ts []TableName) (map[TableName]ColumnInfos, error) {
@@ -220,26 +246,6 @@ func (r *modelcreater) getColumnList(cis ColumnInfos, fs Foreigns) (Columns, err
 	return cs, nil
 }
 
-func (r *modelcreater) getColumnType(typeStr string) string {
-	switch typeStr {
-	case "text":
-		return "string"
-	case "datetime", "timestamp":
-		return "time.Time"
-	case "double":
-		return "float64"
-	default:
-		if strings.Index(typeStr, "varchar") > -1 {
-			return "string"
-		} else if strings.Index(typeStr, "int") > -1 {
-			return "int"
-		} else if strings.Index(typeStr, "tinyint") > -1 {
-			return "bool"
-		}
-		return ""
-	}
-}
-
 func (r *modelcreater) getTables() ([]TableName, error) {
 	query := "SHOW TABLES"
 	values, err := r.selectQuery(query)
@@ -326,30 +332,4 @@ func (r *modelcreater) selectQuery(query string) ([]map[string]string, error) {
 	}
 
 	return ret, nil
-}
-
-func (r *modelcreater) setModelTemp(m *Model) error {
-	in := map[string]interface{}{
-		"ModelName": m.Name,
-		"TableName": m.TableName,
-		"Columns":   m.Columns,
-	}
-	fm := template.FuncMap{
-		"Func": func(cs *Column, index int) string {
-			return fmt.Sprintf("%s %s %s", cs.Name, cs.Type, "")
-		},
-	}
-
-	modelTemp := "model.go.tpl"
-	temp, err := template.New(modelTemp).Funcs(fm).ParseGlob(fmt.Sprintf("./template/%s", modelTemp))
-	if err != nil {
-		return err
-	}
-
-	r.Creater = &Creater{
-		Template: temp,
-		Value:    in,
-		FuncMap:  fm,
-	}
-	return nil
 }
