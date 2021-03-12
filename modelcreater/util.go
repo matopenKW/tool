@@ -11,30 +11,33 @@ func ConvertSnakeToCamel(s string, isPascal bool) string {
 	}
 	st := strings.Split(s, "_")
 
-	uppercase := func(s string) bool {
-		for _, upcase := range []string{
-			"id",
-			"url",
-			"json",
-		} {
-			if s == upcase {
-				return true
-			}
-		}
-		return false
-	}
-
 	ret := ""
 	for _, s := range st {
-		if uppercase(s) {
-			ret += strings.ToUpper(s)
-		} else {
-			ret += fmt.Sprintf("%s%s", strings.ToUpper(s[0:1]), s[1:])
-		}
+		ret += fmt.Sprintf("%s%s", strings.ToUpper(s[0:1]), s[1:])
 	}
 
 	if !isPascal {
 		return fmt.Sprintf("%s%s", strings.ToLower(ret[0:1]), ret[1:])
 	}
 	return ret
+}
+
+func GetColumnType(typeStr string) string {
+	switch typeStr {
+	case "text":
+		return "string"
+	case "datetime", "timestamp":
+		return "time.Time"
+	case "double":
+		return "float64"
+	default:
+		if strings.Index(typeStr, "varchar") > -1 {
+			return "string"
+		} else if strings.Index(typeStr, "int") > -1 {
+			return "int"
+		} else if strings.Index(typeStr, "tinyint") > -1 {
+			return "bool"
+		}
+		return ""
+	}
 }
